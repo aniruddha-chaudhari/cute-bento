@@ -55,7 +55,7 @@ body.fit .stage{position:fixed;top:0;left:0;transform-origin:top left;}
 
 /* ===== bento ===== */
 .bento{
-  flex:1;min-height:0;display:grid;gap:16px;
+  position:relative;flex:1;min-height:0;display:grid;gap:16px;
   grid-template-columns:repeat(12,1fr);
   grid-template-rows:342px 226px 236px;
   grid-template-areas:
@@ -63,8 +63,14 @@ body.fit .stage{position:fixed;top:0;left:0;transform-origin:top left;}
     "gift gift gift gift wall wall wall trak trak trak trak trak"
     "grup grup grup grup remi remi remi trak trak trak trak trak";
 }
-.card{position:relative;overflow:hidden;border-radius:var(--r-card);padding:24px 26px;box-shadow:var(--shadow);min-height:0;transition:box-shadow .4s var(--ease);}
+.card{position:relative;z-index:1;overflow:hidden;border-radius:var(--r-card);padding:24px 26px;box-shadow:var(--shadow);min-height:0;transition:box-shadow .4s var(--ease);}
 .card:hover{box-shadow:0 2px 4px rgba(20,20,24,.05), 0 16px 38px rgba(20,20,24,.08);}
+
+/* Goo: the SVG silhouette carries the shape + shadow, the DOM above stays crisp.
+   Filtering SVG content (not CSS url() on HTML) is what keeps Safari correct. */
+.goo-on .card{background:transparent !important;box-shadow:none !important;}
+.goo-layer{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;overflow:visible;}
+.goo-layer rect{transform-box:fill-box;transform-origin:center;}
 .card h2{font-size:25px;font-weight:800;letter-spacing:-.03em;line-height:1.1;}
 .card .sub{color:var(--ink-60);font-size:14px;font-weight:500;margin-top:7px;line-height:1.45;}
 .hand{font-family:"Caveat",cursive;font-size:19px;line-height:1.15;color:var(--ink);font-weight:600;}
@@ -273,6 +279,20 @@ body.fit .foot{display:none;}
 
 
   <main class="bento">
+    <svg class="goo-layer" id="gooLayer" aria-hidden="true" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="gHero" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#FCE7DB"/><stop offset="55%" stop-color="#FDEFE6"/><stop offset="100%" stop-color="#FBDCCB"/>
+        </linearGradient>
+        <filter id="gooF" filterUnits="userSpaceOnUse" x="-80" y="-80" width="1400" height="1200" color-interpolation-filters="sRGB">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="blur"/>
+          <feColorMatrix in="blur" type="matrix"
+            values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 22 -11" result="goo"/>
+          <feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#2A1F22" flood-opacity="0.10"/>
+        </filter>
+      </defs>
+      <g id="gooG" filter="url(#gooF)"></g>
+    </svg>
 
     <section class="card c-hero">
       <div class="hero-copy">
@@ -683,6 +703,159 @@ body.fit .foot{display:none;}
     paintBar();
     if(raisedAmt >= GOAL) setTimeout(burst, 260);
   });
+
+  /* ---------- goo: silhouette layer + liquid bridges between neighbours ---------- */
+  var NS = "http://www.w3.org/2000/svg";
+  var bento = document.querySelector(".bento");
+  var gooSvg = document.getElementById("gooLayer");
+  var gooG = document.getElementById("gooG");
+  var allCards = Array.prototype.slice.call(document.querySelectorAll(".card"));
+  var FILL = { hero:"#FCE9DE", cust:"#DCD8F9", trak:"#FBEAB5",
+               gift:"#D0EBDA", wall:"#F9D2DF", grup:"#CBE3F8", remi:"#DCD8F9" };
+
+  function keyOf(card){
+    var m = card.className.match(/c-(\w+)/);
+    return m ? m[1] : "";
+  }
+  function mix(a, b){
+    function p(h){ return [parseInt(h.substr(1,2),16), parseInt(h.substr(3,2),16), parseInt(h.substr(5,2),16)]; }
+    var x = p(a), y = p(b);
+    return "#" + [0,1,2].map(function(i){
+      return Math.round((x[i] + y[i]) / 2).toString(16).padStart(2,"0");
+    }).join("");
+  }
+  function box(c){ return { x:c.offsetLeft, y:c.offsetTop, w:c.offsetWidth, h:c.offsetHeight }; }
+
+  function buildGoo(){
+    var W = bento.offsetWidth, H = bento.offsetHeight;
+    if(!W || !H) return;
+    gooSvg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    var f = document.getElementById("gooF");            // fixed region => stable raster
+    f.setAttribute("x", -80); f.setAttribute("y", -80);
+    f.setAttribute("width", W + 160); f.setAttribute("height", H + 160);
+    while(gooG.firstChild) gooG.removeChild(gooG.firstChild);
+    var anchor = document.createElementNS(NS, "rect");   // pins the group's bbox
+    anchor.setAttribute("x", -70); anchor.setAttribute("y", -70);
+    anchor.setAttribute("width", W + 140); anchor.setAttribute("height", H + 140);
+    anchor.setAttribute("fill", "#000"); anchor.setAttribute("fill-opacity", "0");
+    gooG.appendChild(anchor);
+    allCards.forEach(function(card){
+      var b = box(card), k = keyOf(card);
+      var r = document.createElementNS(NS, "rect");
+      r.setAttribute("x", b.x); r.setAttribute("y", b.y);
+      r.setAttribute("width", b.w); r.setAttribute("height", b.h);
+      r.setAttribute("rx", 19);
+      r.setAttribute("fill", k === "hero" ? "url(#gHero)" : (FILL[k] || "#eee"));
+      gooG.appendChild(r);
+      card.__rect = r;
+    });
+    document.body.classList.add("goo-on");
+  }
+
+  // ONE junction per pair: each card grows a lobe out of its own facing edge,
+  // the two overlap in the gap and the goo pass fuses them into a single neck.
+  function clamp(v, lo, hi){ return v < lo ? lo : (v > hi ? hi : v); }
+
+  // A slab per card spanning the FULL shared border, each rooted inside its own
+  // card and reaching across the gap; the two overlap and the goo pass fuses them.
+  var ROOT = 9;                       // how far the slab starts inside its card
+
+  function bridge(a, b){
+    var GAP = 24, MIN = 48;
+    var vTop = Math.max(a.y, b.y), vBot = Math.min(a.y + a.h, b.y + b.h);
+    var hLef = Math.max(a.x, b.x), hRig = Math.min(a.x + a.w, b.x + b.w);
+    var vOver = vBot - vTop, hOver = hRig - hLef;
+    var right = b.x >= a.x, below = b.y >= a.y;
+    var gapX = right ? b.x - (a.x + a.w) : a.x - (b.x + b.w);
+    var gapY = below ? b.y - (a.y + a.h) : a.y - (b.y + b.h);
+
+    if(gapX >= -2 && gapX <= GAP && vOver > MIN){
+      var d = Math.max(9, Math.max(gapX, 0) * 0.78);        // reach past the gap centre
+      var inset = Math.min(17, vOver * 0.16);               // stop inside the rounded corners
+      var y = vTop + inset, h = vOver - inset * 2;
+      return { axis:"x",
+        A:{ x: right ? a.x + a.w - ROOT : a.x - d, y:y, w:ROOT + d, h:h, origin: right ? "left" : "right" },
+        B:{ x: right ? b.x - d : b.x + b.w - ROOT, y:y, w:ROOT + d, h:h, origin: right ? "right" : "left" } };
+    }
+    if(gapY >= -2 && gapY <= GAP && hOver > MIN){
+      var dy = Math.max(9, Math.max(gapY, 0) * 0.78);
+      var ins = Math.min(17, hOver * 0.16);
+      var x = hLef + ins, w = hOver - ins * 2;
+      return { axis:"y",
+        A:{ x:x, y: below ? a.y + a.h - ROOT : a.y - dy, w:w, h:ROOT + dy, origin: below ? "top" : "bottom" },
+        B:{ x:x, y: below ? b.y - dy : b.y + b.h - ROOT, w:w, h:ROOT + dy, origin: below ? "bottom" : "top" } };
+    }
+    return null;
+  }
+
+  /* The merge is a held state, not a pulse: grow on pointerdown, hold while the
+     finger/mouse is down, retract on release. */
+  var holdState = null;
+
+  var ORIGIN = { left:"left center", right:"right center", top:"center top", bottom:"center bottom" };
+
+  function grow(sl, axis, color){
+    var e = document.createElementNS(NS, "rect");
+    e.setAttribute("x", sl.x); e.setAttribute("y", sl.y);
+    e.setAttribute("width", sl.w); e.setAttribute("height", sl.h);
+    e.setAttribute("rx", 9);
+    e.setAttribute("fill", color);
+    e.style.transformOrigin = ORIGIN[sl.origin];
+    var from = axis === "x" ? "scale(.02,1)" : "scale(1,.02)";
+    e.style.transform = from;
+    e.__from = from;
+    gooG.appendChild(e);
+    e.animate([{ transform:from }, { transform:"scale(1,1)" }],
+      { duration:340, easing:"cubic-bezier(.2,.95,.35,1)", fill:"forwards" });
+    return e;
+  }
+  function retract(e){
+    var cur = getComputedStyle(e).transform;
+    e.getAnimations().forEach(function(a){ a.cancel(); });
+    var a = e.animate([{ transform:cur }, { transform:e.__from }],
+      { duration:420, easing:"cubic-bezier(.45,0,.5,1)", fill:"forwards" });
+    a.onfinish = function(){ e.remove(); };
+  }
+
+  function gooHold(card){
+    if(reduce || !card.__rect) return;
+    gooRelease();
+    var a = box(card), col = FILL[keyOf(card)] || "#eee";
+    var st = { lobes:[] };
+
+    // every border this card shares with a neighbour melts; the cards themselves
+    // never move, so each neighbour's other three edges stay exactly as they were
+    allCards.forEach(function(o){
+      if(o === card) return;
+      var br = bridge(a, box(o));
+      if(!br) return;
+      var colB = FILL[keyOf(o)] || col;
+      // each slab wears its own card's colour; the blur does the mixing between them
+      st.lobes.push(grow(br.A, br.axis, col));
+      st.lobes.push(grow(br.B, br.axis, colB));
+    });
+
+    if(!st.lobes.length) return;
+    holdState = st;
+  }
+
+  function gooRelease(){
+    if(!holdState) return;
+    holdState.lobes.forEach(retract);
+    holdState = null;
+  }
+
+  bento.addEventListener("pointerdown", function(e){
+    var card = e.target.closest(".card");
+    if(card) gooHold(card);
+  });
+  ["pointerup","pointercancel"].forEach(function(ev){
+    window.addEventListener(ev, gooRelease);
+  });
+  window.addEventListener("blur", gooRelease);
+  buildGoo();
+  if(window.ResizeObserver) new ResizeObserver(buildGoo).observe(bento);
+  window.addEventListener("load", buildGoo);
 
   /* ---------- 7. reminders ---------- */
   var UPCOMING = [
