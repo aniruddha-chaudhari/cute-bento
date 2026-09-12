@@ -16,7 +16,8 @@ jobs:
       - name: Reconstruct updated page
         shell: bash
         run: |
-          cat .update/givingli.part*.b64 | base64 --decode > givingli-bento.html
+          cat .update/givingli.part*.b64 | base64 --decode --ignore-garbage > givingli-bento.html
+          echo "64cabc7b67cad73df0b7f7d59fbf78f9860c51f6f06bb6c29fd75d27f48d2bc0  givingli-bento.html" | sha256sum -c -
           cp givingli-bento.html index.html
       - name: Commit updated page
         shell: bash
