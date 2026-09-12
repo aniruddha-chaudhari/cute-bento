@@ -16,11 +16,14 @@ jobs:
       - name: Reconstruct updated page
         shell: bash
         run: |
-          : > /tmp/givingli.b64
-          for n in 1 2 3 4 5; do
-            head -c 12000 ".update/givingli.part${n}.b64" >> /tmp/givingli.b64
-          done
-          cat .update/givingli.part6.b64 >> /tmp/givingli.b64
+          cat \
+            .update/givingli.part1.b64 \
+            .update/givingli.part2.b64 \
+            .update/givingli.part3.b64 \
+            .update/givingli.part4a.b64 \
+            .update/givingli.part4b.b64 \
+            .update/givingli.part5.b64 \
+            .update/givingli.part6.b64 > /tmp/givingli.b64
           base64 --decode /tmp/givingli.b64 > givingli-bento.html
           echo "64cabc7b67cad73df0b7f7d59fbf78f9860c51f6f06bb6c29fd75d27f48d2bc0  givingli-bento.html" | sha256sum -c -
           cp givingli-bento.html index.html
